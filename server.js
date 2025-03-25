@@ -4,13 +4,13 @@ const fs = require('fs').promises;
 const path = require('path');
 const { TextDecoder } = require('util');
 const jwt = require('jsonwebtoken') ;
-
 const grpc = require('@grpc/grpc-js');
 const { connect, Contract, hash, Identity, Signer, signers } = require('@hyperledger/fabric-gateway');
 const FabricCAServices = require('fabric-ca-client');
 const { Wallets } = require('fabric-network');
 
 
+// Secret key for JWT creation and verification.
 const SECRET_KEY = 'your_secret_key';
 
 // This part covers the Fabric CA setup
@@ -28,19 +28,30 @@ const channelName = 'mychannel';
 const chaincodeName = 'basic';
 // Membership Service Provider (MSP) identifier.
 const mspId = 'Org1MSP';
-// Path to Fabric cryptographic material.
+
+// Path to crypto materials.
 const cryptoPath = path.resolve("D:\\241\\DACN\\Blockchain\\HF\\Telusko\\test\\fabric-samples\\test-network\\organizations\\peerOrganizations\\org1.example.com");
+
+// Path to user private key directory.
 const keyDirectoryPath = path.resolve(cryptoPath, 'users', 'User1@org1.example.com', 'msp', 'keystore');
 
-const walletPath = './wallet'; // Path to the certificate (signcerts are in wallet folder) to authenticate.
-const certDirectoryPath = path.resolve(cryptoPath, 'users', 'User1@org1.example.com', 'msp', 'signcerts'); // Or just use what TestNetwork gave you
+// Path to wallet directory.
+const walletPath = './wallet';
+
+// Path to user certificate directory.
+const certDirectoryPath = path.resolve(cryptoPath, 'users', 'User1@org1.example.com', 'msp', 'signcerts');
 
 // TLS certificate for secure communication.
 const tlsCertPath = path.resolve(cryptoPath, 'peers', 'peer0.org1.example.com', 'tls', 'ca.crt');
-// Address of the Fabric peer.
+
+// Gateway peer endpoint.
 const peerEndpoint = 'localhost:7051';
+
+// Gateway peer SSL host name override.
 const peerHostAlias = 'peer0.org1.example.com';
+
 const utf8Decoder = new TextDecoder();
+const assetId = `asset${String(Date.now())}`;
 
 // Reads the TLS certificate.
 // Establishes a gRPC connection to communicate with the Fabric peer.
@@ -53,7 +64,7 @@ async function newGrpcConnection() {
 }
 
 // Reads the certificate in certPath folder.
-async function newIdentity(username) {
+async function newIdentity() {
     const certPath = await getFirstDirFileName(certDirectoryPath);
     const credentials = await fs.readFile(certPath);
     return { mspId, credentials };
@@ -184,10 +195,9 @@ app.post('/createAdmin', async (req, res) => {
     }
 });
 
-app.get('/identity/:username', async (req, res) => {
+app.get('/identity', async (req, res) => {
     try {
-        const username = req.params.username; // Lấy username từ URL
-        const identity = await newIdentity(username);
+        const identity = await newIdentity();
         res.json({
             mspId: identity.mspId,
             credentials: identity.credentials.toString(), // Converts the certificate to a readable format
@@ -257,54 +267,4 @@ app.get('/assets/:id', async (req, res) => {
 
 app.listen(port, () => {
     console.log(`Fabric API running on port ${port}`);
-});
-
-
-
-
-
-const ccpPath = path.resolve(cryptoPath, 'connection-org1.json');
-
-app.post('/enrollUser', async (req, res) => {
-    try {
-        const { userId } = req.body;
-
-        const caInfo = JSON.parse(await fs.readFile(ccpPath, 'utf8')).certificateAuthorities['ca.org1.example.com'];
-        const ca = new FabricCAServices(caInfo.url);
-        const wallet = await Wallets.newFileSystemWallet('./wallet');
-
-        // Kiểm tra nếu user đã có trong wallet
-        const userIdentity = await wallet.get(userId);
-        if (userIdentity) {
-            return res.json({ message: `User ${userId} already enrolled` });
-        }
-
-        // Enroll user
-        const enrollment = await ca.enroll({ enrollmentID: userId, enrollmentSecret: 'userpw' });
-
-        const x509Identity = {
-            credentials: {
-                certificate: enrollment.certificate,
-                privateKey: enrollment.key.toBytes(),
-            },
-            mspId: 'Org1MSP',
-            type: 'X.509',
-        };
-
-        await wallet.put(userId, x509Identity);
-
-        res.json({ message: `User ${userId} enrolled successfully` });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.get('/whoami', async (req, res) => {
-    try {
-        const contract = await getContract('admin');
-        const result = await contract.evaluateTransaction('GetClientIdentity');
-        res.json({ identity: result.toString() });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
 });
